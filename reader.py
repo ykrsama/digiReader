@@ -6,43 +6,31 @@ import struct
 import numpy as np
 import plotly.graph_objects as go
 import ROOT
+from scipy.signal import savgol_filter
+from sklearn.mixture import GaussianMixture
+from scipy.stats import moyal
+from scipy.optimize import curve_fit, OptimizeWarning
+import warnings
 from tqdm import tqdm
 
 MAX_CHANNEL_N = 8
 MAX_DATA_VALUE = 16384
+HEADER_LENGTH = 16
 
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
     parser.add_argument('filename', type=Path, help='Input binary file')
-    parser.add_argument('-c', '--config', type=Path, default='share/config.yaml')
-    parser.add_argument('-m', '--modes', default='wave', nargs='+', choices=['wave', 'root', 'debug'], help='Modes')
+    parser.add_argument('-m', '--modes', default=['wave'], nargs='+', choices=['wave', 'root', 'denoise', 'gmm' ,'landau', 'debug'], help='Modes')
     return parser.parse_args()
 
 
-def find_sublist(lst, sublst):
-    # Get the sliding window view
-    sliding_view = np.lib.stride_tricks.sliding_window_view(lst, len(sublst))
-    # Check where the sublist matches
-    matching_indices = np.where((sliding_view == sublst).all(axis=1))[0]
-    if matching_indices.size > 0:
-        # Return the first matching index
-        return matching_indices[0]
-    else:
-        # Return -1 if no match is found
-        return -1
-
-
 def is_first_header(header_unpacked):
-    if header_unpacked[1] != 0x0001:
-        return False
-    if header_unpacked[4] >= MAX_CHANNEL_N:
-        return False
     length_offset = header_unpacked[3]
     offset_buff = length_offset & 0xFF
     length_buff = (length_offset >> 8) & 0xFF
-    if offset_buff > length_buff:
-        return False
-    return True
+    return (header_unpacked[1] == 0x0001 and
+            header_unpacked[4] < MAX_CHANNEL_N and
+            offset_buff <= length_buff)
 
 
 def check_header(header_unpacked, header_info):
@@ -63,116 +51,180 @@ def check_data(data_unpacked):
         raise ValueError(f'Invalid data {hex(np.max(data_unpacked))} > {MAX_DATA_VALUE}')
 
 
-def read_packets(file_path, start_offset, modes):
-    packets = {
-        "length_buff": [],
-        "data_length": [],
-        "offset_buff": [],
-        "threshold_buff": [],
-        "id": [],
-        "time_tick": [],
-        "data": [],
-        "mean": [],
-        "std": [],
-        "max": [],
-        "min": []
-    }
+def find_sublist(lst, sublst):
+    # Get the sliding window view
+    sliding_view = np.lib.stride_tricks.sliding_window_view(lst, len(sublst))
+    # Check where the sublist matches
+    matching_indices = np.where((sliding_view == sublst).all(axis=1))[0]
+    if matching_indices.size > 0:
+        # Return the first matching index
+        return matching_indices[0]
+    else:
+        # Return -1 if no match is found
+        return -1
 
+def estimate_baseline_gmm(waveform, n=9):
+    # Estimate baseline using Gaussian Mixture
+    gmm = GaussianMixture(n_components=n)
+    gmm.fit(waveform.reshape(-1, 1))
+    return gmm.means_.min()
+
+# Landau fitting function
+def landau_func(x, loc, scale, amplitude, baseline):
+    return amplitude * moyal.pdf(x, loc=loc, scale=scale) + baseline
+
+def estimate_baseline_landau(signal):
+    # Initial parameter guess
+    max_index = np.argmax(signal)
+    loc_guess = max_index
+    half_max = (signal[max_index] + signal.min()) / 2
+    left_index = np.where(signal[:max_index] <= half_max)[0]
+    right_index = np.where(signal[max_index:] <= half_max)[0] + max_index
+    
+    if len(left_index) > 0 and len(right_index) > 0:
+        scale_guess = (right_index[0] - left_index[-1]) / 2
+    else:
+        scale_guess = 5
+    amplitude_guess = signal[max_index]
+    baseline_guess = signal.min()
+    initial_guess = [loc_guess, scale_guess, amplitude_guess, baseline_guess]
+    
+    # Fit the noisy waveform
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OptimizeWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        try:
+            popt, _ = curve_fit(landau_func, np.arange(len(signal)), signal, p0=initial_guess)
+        except RuntimeError:
+            return np.median(signal)
+    
+    # Extract the estimated baseline
+    return popt[-1]
+
+
+def read_packets(file_path, start_offset, modes):
+    packets = {key: [] for key in ["length_buff", "data_length", "offset_buff", "threshold_buff", "id",
+                                   "time_tick", "data", "mean", "std", "max", "min", "baseline_median",
+                                   "net_signal_median", "net_signal_denoised_median", "baseline_landau",
+                                   "net_signal_landau", "net_signal_denoised_landau", "baseline_gmm",
+                                   "net_signal_gmm", "net_signal_denoised_gmm"]}
     header_info = {
         "initialized": False,
         "buff_channel": [],
     }
+    prev_header_invalid = True # Set to True to skip the first header warning
 
-    with open(file_path, 'rb') as file:
-        file_size = Path(file_path).stat().st_size
+    with open(file_path, 'rb') as file, tqdm(total=file_path.stat().st_size, unit='B', unit_scale=True, desc='Reading') as pbar:
+        pbar.update(start_offset)
         header_offset = start_offset
-        prev_header_invalid = True # Set to True to skip the first header warning
-        with tqdm(total=file_size, unit='B', unit_scale=True, desc='Reading') as pbar:
-            pbar.update(header_offset)
-            while True:
-                # ===================================================
-                # Read header
-                # ---------------------------------------------------
-                header_length = 16
-                file.seek(header_offset)
-                header = file.read(header_length)
-                if not header or len(header) != header_length:
-                    break
-                header_unpacked = struct.unpack('>8H', header)
-                header_str = ""
-                for number in header_unpacked:
-                    header_str += f"{number:04x} "
+        while True:
+            # ===================================================
+            # Read header
+            # ---------------------------------------------------
+            file.seek(header_offset)
+            header = file.read(HEADER_LENGTH)
+            if not header or len(header) != HEADER_LENGTH:
+                break
+            header_unpacked = struct.unpack('>8H', header)
+            header_str = ""
+            for number in header_unpacked:
+                header_str += f"{number:04x} "
  
-                try:
-                    header_info = check_header(header_unpacked, header_info)
-                except ValueError as e:
-                    if not prev_header_invalid:
-                        print('\033[91m' + str(e), hex(header_offset), ":", header_str)
-                        prev_header_invalid = True
-                    header_offset += 8
-                    pbar.update(8)
-                    continue
-                if prev_header_invalid:
-                    print('\033[92mFind header at', hex(header_offset), ":", header_str)
-                    prev_header_invalid = False
-                # Output header info
-                length_offset = header_unpacked[3]
-                offset_buff = length_offset & 0xFF
-                length_buff = (length_offset >> 8) & 0xFF
-               
-                # ===================================================
-                # Read data
-                # ---------------------------------------------------
-                data_length = length_buff * 8
-                data_offset = header_offset + header_length
-                file.seek(data_offset)
-                data = file.read(data_length)
-                if not data or len(data) != data_length:
-                    break
-                num_data = len(data) // 2
-                data_unpacked = np.asarray(struct.unpack(f'>{num_data}H', data))
-                header_pos = find_sublist(data_unpacked, np.array(header_info["buff_channel"]))
-                if header_pos >= 0:
-                    if header_pos > 3:
-                        # Reset data_length to the next header and trim the data_unpacked
-                        data_n = header_pos - 3
-                        data_length = data_n * 2
-                        data_unpacked = data_unpacked[:data_n]
-                    else:
-                        print('\033[91m' + hex(data_offset), ": no data")
-                        continue
-
-                try:
-                    check_data(data_unpacked)
-                except ValueError as e:
-                    print('\033[91m' + hex(data_offset), ":", e)
-                    pbar.update(data_offset + data_length - header_offset)
-                    header_offset = data_offset + data_length
+            try:
+                header_info = check_header(header_unpacked, header_info)
+            except ValueError as e:
+                if not prev_header_invalid:
+                    print('\033[91m' + str(e), hex(header_offset), ":", header_str)
                     prev_header_invalid = True
+                header_offset += 8
+                pbar.update(8)
+                continue
+            if prev_header_invalid:
+                print('\033[92mFind header at', hex(header_offset), ":", header_str)
+                prev_header_invalid = False
+            # Output header info
+            length_offset = header_unpacked[3]
+            offset_buff = length_offset & 0xFF
+            length_buff = (length_offset >> 8) & 0xFF
+           
+            # ===================================================
+            # Read data
+            # ---------------------------------------------------
+            data_length = length_buff * 8
+            data_offset = header_offset + HEADER_LENGTH 
+            file.seek(data_offset)
+            data = file.read(data_length)
+            if not data or len(data) != data_length:
+                break
+            num_data = len(data) // 2
+            data_unpacked = np.asarray(struct.unpack(f'>{num_data}H', data))
+            header_pos = find_sublist(data_unpacked, np.array(header_info["buff_channel"]))
+            if header_pos >= 0:
+                if header_pos > 3:
+                    # Reset data_length to the next header and trim the data_unpacked
+                    data_n = header_pos - 3
+                    data_length = data_n * 2
+                    data_unpacked = data_unpacked[:data_n]
+                else:
+                    print('\033[91m' + hex(data_offset), ": no data")
                     continue
-                # ===================================================
-                # Record data
-                # ---------------------------------------------------
-                packets["offset_buff"].append(offset_buff)
-                packets["data_length"].append(data_length)
-                packets["length_buff"].append(length_buff)
-                packets["threshold_buff"].append(header_unpacked[2])
-                packets["id"].append(header_unpacked[1])
-                packets["time_tick"].append(header_unpacked[7])
-                packets["mean"].append(np.mean(data_unpacked))
-                packets["std"].append(np.std(data_unpacked))
-                packets["max"].append(np.max(data_unpacked))
-                packets["min"].append(np.min(data_unpacked))
-                packets["data"].append(data_unpacked)
-                if 'wave' in modes or 'debug' in modes:
-                    if len(packets["data"]) >= 100:
-                         break
 
-                # ===================================================
-                # Move to the next packet
-                # ---------------------------------------------------
+            try:
+                check_data(data_unpacked)
+            except ValueError as e:
+                print('\033[91m' + hex(data_offset), ":", e)
                 pbar.update(data_offset + data_length - header_offset)
                 header_offset = data_offset + data_length
+                prev_header_invalid = True
+                continue
+            # ===================================================
+            # Record data
+            # ---------------------------------------------------
+            # Denoise the waveform
+            waveform_denoised = savgol_filter(data_unpacked, window_length=37, polyorder=5) if 'denoise' in modes else data_unpacked
+            # Estimate baseline
+            baseline_median = np.median(waveform_denoised)
+            baseline_gmm = estimate_baseline_gmm(waveform_denoised, 9) if 'gmm' in modes else None
+            baseline_landau = estimate_baseline_landau(waveform_denoised) if 'landau' in modes else None
+            # Record data
+            packets["offset_buff"].append(offset_buff)
+            packets["data_length"].append(data_length)
+            packets["length_buff"].append(length_buff)
+            packets["threshold_buff"].append(header_unpacked[2])
+            packets["id"].append(header_unpacked[1])
+            packets["time_tick"].append(header_unpacked[7])
+            packets["mean"].append(np.mean(data_unpacked))
+            packets["std"].append(np.std(data_unpacked))
+            packets["max"].append(np.max(data_unpacked))
+            packets["min"].append(np.min(data_unpacked))
+            packets["baseline_median"].append(baseline_median)
+            packets["net_signal_median"].append(np.sum(data_unpacked - baseline_median))
+            if 'denoise' in modes:
+                packets["net_signal_denoised_median"].append(np.sum(waveform_denoised - baseline_median))
+            if 'gmm' in modes:
+                packets["baseline_gmm"].append(baseline_gmm)
+                packets["net_signal_gmm"].append(np.sum(data_unpacked - baseline_gmm))
+            if 'gmm' in modes and 'denoise' in modes:
+                packets["net_signal_denoised_gmm"].append(np.sum(waveform_denoised - baseline_gmm))
+            if 'landau' in modes:
+                packets["baseline_landau"].append(baseline_landau)
+                packets["net_signal_landau"].append(np.sum(data_unpacked - baseline_landau))
+            if 'landau' in modes and 'denoise' in modes:
+                packets["net_signal_denoised_landau"].append(np.sum(waveform_denoised - baseline_landau))
+            if 'wave' in modes:
+                packets["data"].append(data_unpacked)
+            if 'wave' in modes:
+                if len(packets["id"]) >= 100:
+                     break
+            if 'debug' in modes:
+                if len(packets["id"]) >= 10000:
+                     break
+            # ===================================================
+            # Move to the next packet
+            # ---------------------------------------------------
+            pbar.update(data_offset + data_length - header_offset)
+            header_offset = data_offset + data_length
+
     return packets
 
 if __name__ == "__main__":
@@ -196,8 +248,12 @@ if __name__ == "__main__":
     if 'root' in modes:
         print("Saving root file")
         root_file_path = file_path.with_suffix('.root')
+        if 'wave' in modes:
+            root_file_path = file_path.with_name(file_path.stem + '.wave.root')
+        if 'debug' in modes:
+            root_file_path = file_path.with_name(file_path.stem + '.debug.root')
         # Create RDataFrame and Write to file
-        df = ROOT.RDF.FromNumpy({key: np.asarray(value) for key, value in packets.items() if key != 'data'})
+        df = ROOT.RDF.FromNumpy({key: np.asarray(value) for key, value in packets.items() if key != 'data' and value})
         df.Snapshot("tree", str(root_file_path))
 
     # ===================================================
