@@ -1,1 +1,3 @@
 *.bin
+*.root
+*.DS_Store
