@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import ROOT
 from tqdm import tqdm
 
+MAX_CHANNEL_N = 8
+MAX_DATA_VALUE = 16384
 
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
@@ -29,16 +31,36 @@ def find_sublist(lst, sublst):
         # Return -1 if no match is found
         return -1
 
-def check_header(header_unpacked):
-    if header_unpacked[3] != 0x2104:
-        raise ValueError('Invalid header')
-    if header_unpacked[4] > 8:
-        raise ValueError('Invalid header: channel too large')
+
+def is_first_header(header_unpacked):
+    if header_unpacked[1] != 0x0001:
+        return False
+    if header_unpacked[4] >= MAX_CHANNEL_N:
+        return False
+    length_offset = header_unpacked[3]
+    offset_buff = length_offset & 0xFF
+    length_buff = (length_offset >> 8) & 0xFF
+    if offset_buff > length_buff:
+        return False
+    return True
+
+
+def check_header(header_unpacked, header_info):
+    if header_info["initialized"]:
+        if header_unpacked[3:5] != header_info["buff_channel"]:
+            raise ValueError('Invalid header')
+    else:
+        if is_first_header(header_unpacked):
+            header_info["buff_channel"] = header_unpacked[3:5]
+            header_info["initialized"] = True
+        else:
+            raise ValueError('Invalid header')
+    return header_info
 
 
 def check_data(data_unpacked):
-    if np.max(data_unpacked) > 16384:
-        raise ValueError(f'Invalid data: too large at {hex(np.max(data_unpacked))}')
+    if np.max(data_unpacked) > MAX_DATA_VALUE:
+        raise ValueError(f'Invalid data {hex(np.max(data_unpacked))} > {MAX_DATA_VALUE}')
 
 
 def read_packets(file_path, start_offset, modes):
@@ -56,10 +78,15 @@ def read_packets(file_path, start_offset, modes):
         "min": []
     }
 
+    header_info = {
+        "initialized": False,
+        "buff_channel": [],
+    }
+
     with open(file_path, 'rb') as file:
         file_size = Path(file_path).stat().st_size
         header_offset = start_offset
-        prev_header_invalid = False
+        prev_header_invalid = True # Set to True to skip the first header warning
         with tqdm(total=file_size, unit='B', unit_scale=True, desc='Reading') as pbar:
             pbar.update(header_offset)
             while True:
@@ -77,16 +104,16 @@ def read_packets(file_path, start_offset, modes):
                     header_str += f"{number:04x} "
  
                 try:
-                    check_header(header_unpacked)
+                    header_info = check_header(header_unpacked, header_info)
                 except ValueError as e:
                     if not prev_header_invalid:
-                        print('\033[91m' + str(e), ":", hex(header_offset), ":", header_str)
+                        print('\033[91m' + str(e), hex(header_offset), ":", header_str)
                         prev_header_invalid = True
                     header_offset += 8
                     pbar.update(8)
                     continue
                 if prev_header_invalid:
-                    print('\033[92mRecovered at   :', hex(header_offset), ":", header_str)
+                    print('\033[92mFind header at', hex(header_offset), ":", header_str)
                     prev_header_invalid = False
                 # Output header info
                 length_offset = header_unpacked[3]
@@ -104,7 +131,7 @@ def read_packets(file_path, start_offset, modes):
                     break
                 num_data = len(data) // 2
                 data_unpacked = np.asarray(struct.unpack(f'>{num_data}H', data))
-                header_pos = find_sublist(data_unpacked, np.array([0x2104, 0x0000]))
+                header_pos = find_sublist(data_unpacked, np.array(header_info["buff_channel"]))
                 if header_pos >= 0:
                     if header_pos > 3:
                         # Reset data_length to the next header and trim the data_unpacked
