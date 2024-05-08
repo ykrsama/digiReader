@@ -40,24 +40,28 @@ def byte_to_header_info(header: bytes):
     return header_info, header_unpacked
 
 
-def is_first_header(header_info: dict, max_channel_n=8):
-    return (header_info["id"] == 1 and
+def is_begin_header(header_info: dict, begin_id=1, buff_info=None, max_channel_n=8):
+    if not begin_id:
+        begin_id = 1
+    if buff_info:
+        return (header_info["id"] == begin_id and
+            header_info["length_offset"] == buff_info and
+            header_info["channel_n"] < max_channel_n)
+    else:
+        return (header_info["id"] == begin_id and
             header_info["channel_n"] < max_channel_n and
             header_info["offset_buff"] <= header_info["length_buff"])
 
 
-def find_first_header_info(file, start_offset: int, header_length=16, find_step=8):
-    header_offset = start_offset
-
-    step_n = 1000
-    for _ in list(range(step_n)):
+def find_begin_header_info(file, begin_id: int, buff_info: int, header_length=16, find_step=8):
+    header_offset = 0
+    while True:
         header = get_byte(file, header_offset, header_length)
         header_info, _ = byte_to_header_info(header)
-        if is_first_header(header_info):
+        if is_begin_header(header_info, begin_id, buff_info):
             return header_offset, header_info
         else:
             header_offset += find_step
-    raise ValueError(f"First Header Not Found after {step_n} steps")
 
 
 def find_sublist(lst: np.ndarray, sublst: np.ndarray):
@@ -124,7 +128,7 @@ def process_data(file, data_offset: int, data_length: int, header_pattern: tuple
     if 'denoise' in cfgs["modes"]:
         waveform_denoised = savgol_filter(data_unpacked,
                                           window_length=cfgs["denoise_savgol_window_length"],
-                                          polyorder=cfgs["denoise_savgol_window_length"])
+                                          polyorder=cfgs["denoise_savgol_polyorder"])
     else:
         waveform_denoised = data_unpacked
     # Estimate baseline using median

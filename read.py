@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 import ROOT
 from tools import read_bin
 
-MAX_CHANNEL_N = 8
 MAX_DATA_VALUE = 16384
 HEADER_LENGTH = 16
 HEADER_FIND_STEP = 8
@@ -21,12 +20,14 @@ def get_args():
     parser.add_argument('-m', '--modes',
                         default=['wave'],
                         nargs='+',
-                        choices=['wave', 'root', 'denoise', 'gmm', 'landau', 'debug'],
+                        choices=['wave', 'root', 'denoise', 'gmm', 'landau'],
                         help='Modes')
+    parser.add_argument('-i', '--id', nargs='+', type=int, default=[None], help='id begin, id end')
+    parser.add_argument('-b', '--buff', nargs='?', type=lambda x: int(x, 0), default=None, help='buffer_info, i.e. 0x2104')
     return parser.parse_args()
 
 
-def read_packets(file_path, start_offset, cfgs):
+def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
     packets = {key: [] for key in ["length_buff", "data_length", "offset_buff", "threshold_buff", "channel_n",
                                    "id", "time_tick",
                                    "data", "mean", "std", "max", "min",
@@ -37,7 +38,13 @@ def read_packets(file_path, start_offset, cfgs):
     prev_header_valid = True
 
     with open(file_path, 'rb') as file:
-        header_offset, header_info = read_bin.find_first_header_info(file, start_offset, HEADER_LENGTH, HEADER_FIND_STEP)
+        if not begin_id:
+            begin_id = 1
+        if buff_info:
+            print(f'Finding header with id {begin_id} and buff_info {hex(buff_info)}')
+        else:
+            print(f'Finding header with id {begin_id}')
+        header_offset, header_info = read_bin.find_begin_header_info(file, begin_id, buff_info, HEADER_LENGTH, HEADER_FIND_STEP)
         print(f'Found first header: {header_info["str"]}')
         header_pattern = (header_info["length_offset"], header_info["channel_n"])
         with tqdm(total=file_path.stat().st_size, unit='B', unit_scale=True, desc='Reading') as pbar:
@@ -63,6 +70,13 @@ def read_packets(file_path, start_offset, cfgs):
                     print('\033[92mFind header at', hex(header_offset), ":", header_info["str"])
                     prev_header_valid = True
 
+                if 'wave' in cfgs["modes"]:
+                    if len(packets["id"]) >= 100:
+                        break
+
+                if end_id and header_info["id"] >= end_id:
+                    break
+
                 # Process Data
                 try:
                     result, data_length, data_end_offset = read_bin.process_data(file, data_offset, data_length, header_pattern, cfgs)
@@ -86,14 +100,6 @@ def read_packets(file_path, start_offset, cfgs):
 
                 for key, value in result.items():
                     packets[key].append(value)
-
-                if 'wave' in cfgs["modes"]:
-                    if len(packets["id"]) >= 100:
-                        break
-
-                if 'debug' in cfgs["modes"]:
-                    if len(packets["id"]) >= 10000:
-                        break
 
                 # ===================================================
                 # Move to the next packet
@@ -119,10 +125,14 @@ if __name__ == "__main__":
     args = get_args()
     file_path = args.filename
     cfgs["modes"] = args.modes
+    ids = args.id
+    buff = args.buff
+    begin_id = ids[0] if len(ids) > 0 else None
+    end_id = ids[1] if len(ids) > 1 else None
     # ===================================================
     # Process binary file
     # ---------------------------------------------------
-    packets = read_packets(file_path, start_offset, cfgs)
+    packets = read_packets(file_path, begin_id, end_id, buff, cfgs)
 
     # ===================================================
     # Output root file
@@ -131,10 +141,11 @@ if __name__ == "__main__":
         root_file_path = file_path.with_suffix('.root')
 
         if 'wave' in cfgs["modes"]:
-            root_file_path = file_path.with_name(file_path.stem + '.wave.root')
-
-        if 'debug' in cfgs["modes"]:
-            root_file_path = file_path.with_name(file_path.stem + '.debug.root')
+            root_file_path = root_file_path.with_name(root_file_path.stem + '.wave.root')
+        if begin_id:
+            root_file_path = root_file_path.with_name(root_file_path.stem + f'.id{begin_id}_.root')
+            if end_id:
+                root_file_path = root_file_path.with_name(root_file_path.stem + f'{end_id}.root')
 
         print(f"Creating root file: {root_file_path}")
         # Create RDataFrame and Write to file
