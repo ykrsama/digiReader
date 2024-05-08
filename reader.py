@@ -54,8 +54,12 @@ def read_packets(file_path, begin_id, end_id, cfgs):
         #       Remember to change header_patter_pos in process_data
         # 2. Header finding (forward direction)
         print(COLOUR["OKBLUE"], end="")
-        header_offset, header_info = read_bin.find_header_info(file, file_size, header_offset, begin_id,
+        try:
+            header_offset, header_info = read_bin.find_header_info(file, file_size, header_offset, begin_id,
                                                                header_pattern, HEADER_LENGTH, HEADER_FIND_STEP)
+        except ValueError as e:
+            print(f'{COLOUR["FAIL"]}[Error]', e)
+            exit()
         # print(f'{COLOUR["OKGREEN"]}Found header id {begin_id} at {hex(header_offset)} : {header_info["str"]}')
         pbar_total = file_size - header_offset
         if end_id:
