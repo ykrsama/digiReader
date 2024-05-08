@@ -90,10 +90,10 @@ fig.add_trace(go.Scatter(x=x, y=noisy_waveform, mode='lines', name='Noisy Wavefo
 fig.add_trace(go.Scatter(x=x, y=clean_waveform, mode='lines', name='Clean Waveform'))
 fig.add_trace(go.Scatter(x=x, y=optimized_smoothed_waveform, mode='lines',
                          name='Optimized Smoothed Waveform', line=dict(dash='dash')))
-fig.add_hline(y=best_gmm_baseline, line=dict(color='orange', dash='dashdot'),
-              annotation=dict(text="Baseline GMM", xshift=-400, font=dict(color='orange', size=16)))
+fig.add_hline(y=best_gmm_baseline, line=dict(color='goldenrod', dash='dashdot'),
+              annotation=dict(text="GMM Baseline", xshift=-400, font=dict(color='goldenrod', size=16)))
 fig.add_hline(y=baseline_landau, line=dict(color='brown', dash='dot'),
-              annotation=dict(text="Baseline Landau", font=dict(color='brown', size=16)))
+              annotation=dict(text="Landau Baseline", font=dict(color='brown', size=16)))
 
 dy = np.max(noisy_waveform) - np.min(noisy_waveform)
 

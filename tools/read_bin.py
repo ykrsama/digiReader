@@ -1,6 +1,7 @@
 import struct
 import numpy as np
 from scipy.signal import savgol_filter
+from tqdm import tqdm
 from .algo import estimate_baseline_gmm, estimate_baseline_landau
 
 
@@ -53,15 +54,17 @@ def is_begin_header(header_info: dict, begin_id=1, buff_info=None, max_channel_n
             header_info["offset_buff"] <= header_info["length_buff"])
 
 
-def find_begin_header_info(file, begin_id: int, buff_info: int, header_length=16, find_step=8):
+def find_begin_header_info(file, filesize, begin_id: int, buff_info: int, header_length=16, find_step=8):
     header_offset = 0
-    while True:
-        header = get_byte(file, header_offset, header_length)
-        header_info, _ = byte_to_header_info(header)
-        if is_begin_header(header_info, begin_id, buff_info):
-            return header_offset, header_info
-        else:
-            header_offset += find_step
+    with tqdm(total=filesize, unit='B', unit_scale=True, desc='Reading') as pbar:
+        while True:
+            header = get_byte(file, header_offset, header_length)
+            header_info, _ = byte_to_header_info(header)
+            if is_begin_header(header_info, begin_id, buff_info):
+                return header_offset, header_info
+            else:
+                header_offset += find_step
+                pbar.update(find_step)
 
 
 def find_sublist(lst: np.ndarray, sublst: np.ndarray):
@@ -125,7 +128,7 @@ def process_data(file, data_offset: int, data_length: int, header_pattern: tuple
         "min": np.min(data_unpacked),
     }
     # Denoise the waveform
-    if 'denoise' in cfgs["modes"]:
+    if 'denoise' in cfgs["algo"]:
         waveform_denoised = savgol_filter(data_unpacked,
                                           window_length=cfgs["denoise_savgol_window_length"],
                                           polyorder=cfgs["denoise_savgol_polyorder"])
@@ -135,22 +138,24 @@ def process_data(file, data_offset: int, data_length: int, header_pattern: tuple
     baseline_median = np.median(waveform_denoised)
     result["baseline_median"] = baseline_median
     result["net_signal_median"] = np.sum(data_unpacked - baseline_median)
-    if 'denoise' in cfgs["modes"]:
+    if 'denoise' in cfgs["algo"]:
         result["net_signal_denoised_median"] = np.sum(waveform_denoised - baseline_median)
     # Estimate baseline using Gaussian Mixture
-    if 'gmm' in cfgs["modes"]:
+    if 'gmm' in cfgs["algo"]:
         baseline_gmm = estimate_baseline_gmm(waveform_denoised, cfgs["gmm_n_components"])
         result["baseline_gmm"] = baseline_gmm
         result["net_signal_gmm"] = np.sum(data_unpacked - baseline_gmm)
-        if 'denoise' in cfgs["modes"]:
+        if 'denoise' in cfgs["algo"]:
             result["net_signal_denoised_gmm"] = np.sum(waveform_denoised - baseline_gmm)
     # Estimate baseline using Landau distribution fit
-    if 'landau' in cfgs["modes"]:
+    if 'landau' in cfgs["algo"]:
         baseline_landau = estimate_baseline_landau(waveform_denoised)
         result["baseline_landau"] = baseline_landau
         result["net_signal_landau"] = np.sum(data_unpacked - baseline_landau)
-        if 'denoise' in cfgs["modes"]:
+        if 'denoise' in cfgs["algo"]:
             result["net_signal_denoised_landau"] = np.sum(waveform_denoised - baseline_landau)
-    if 'wave' in cfgs["modes"]:
+    if cfgs["wave"]:
         result["data"] = data_unpacked
+        if 'denoise' in cfgs["algo"]:
+            result["waveform_denoised"] = waveform_denoised
     return result, data_length, data_end_offset
