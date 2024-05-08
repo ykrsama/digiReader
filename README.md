@@ -22,7 +22,7 @@ python3 read.py <filename.bin> --modes wave
 python3 read.py <filename.bin> --modes root
 ```
 
-**Read a slice of binary file
+**Read a slice of binary file**
 
 `--buff` is optional, normally the program will find the header automatically.
 Use this argument when the first found header is wrong.
