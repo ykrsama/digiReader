@@ -29,8 +29,8 @@ python3 reader.py <filename.bin>
 Use this argument when the first found header is wrong.
 
 ```bash
-python3 reader.py <filename.bin> --id 50000 10000 --buff 0x2104
-# id starting from 50000 to 60000, with length_buff = 0x21, offset_buff = 0x04
+python3 reader.py <filename.bin> --id 50001 10000 --buff 0x2104
+# id starting from 50001 to 60000, with length_buff = 0x21, offset_buff = 0x04
 ```
 
 **Read a slice of binary file, apply denoise and Gaussian Mixture baseline**
