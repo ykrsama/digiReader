@@ -87,7 +87,7 @@ def read_packets(file_path, begin_id, end_id, cfgs):
                     if len(packets["id"]) >= cfgs["wave"]:
                         break
 
-                if end_id and (header_info["id"] >= end_id):
+                if end_id and (header_info["id"] > end_id):
                     break
 
                 # Process Data
