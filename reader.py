@@ -28,7 +28,7 @@ def get_args():
                         nargs='+',
                         choices=['denoise', 'gmm', 'landau'],
                         help='Apply algorithms')
-    parser.add_argument('-i', '--id', nargs='+', type=int, default=[None], help='id begin, id size')
+    parser.add_argument('-i', '--id', nargs='+', type=int, default=[1], help='id begin, id size')
     return parser.parse_args()
 
 
@@ -144,9 +144,12 @@ if __name__ == "__main__":
     cfgs["algo"] = args.algo
     ids = args.id
     # Vars depend on args
-    begin_id = ids[0] if len(ids) > 0 else None
+    begin_id = ids[0]
     id_size = ids[1] if len(ids) > 1 else None
     end_id = begin_id + id_size - 1 if id_size else None
+    if cfgs["wave"]:
+        id_size = cfgs["wave"]
+        end_id = begin_id + id_size - 1
     # ===================================================
     # Process binary file
     # ---------------------------------------------------
