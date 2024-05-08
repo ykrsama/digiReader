@@ -3,7 +3,6 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from tqdm import tqdm
-import struct
 import numpy as np
 import plotly.graph_objects as go
 import ROOT
