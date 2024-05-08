@@ -62,16 +62,7 @@ def find_header_info(file, filesize, start_offset, target_id: int, header_patter
     finding_direction = 1  # 1: forward finding, -1: backward finding
     finding_direction_turned = 0
     if header_pattern:
-        header = get_byte(file, header_offset, header_length)
-        header_info, header_unpacked = byte_to_header_info(header)
-        if header_info["id"] == target_id:
-            return header_offset, header_info
-        elif header_info["id"] > target_id:
-            finding_direction = -1
-
-        with tqdm(total=filesize, unit='B', unit_scale=True, desc=f'Finding Header id {target_id}') as pbar:
-            pbar.update(header_offset)
-
+        with tqdm(total=filesize, initial=header_offset, unit='B', unit_scale=True, desc=f'Finding Header id {target_id}') as pbar:
             while True:
                 header = get_byte(file, header_offset, header_length)
                 header_info, header_unpacked = byte_to_header_info(header)
@@ -79,25 +70,34 @@ def find_header_info(file, filesize, start_offset, target_id: int, header_patter
                     check_header(header_unpacked, header_pattern)
                     if header_info["id"] == target_id:
                         return header_offset, header_info
-                    elif finding_direction_turned <= 1:
-                        finding_direction = 2 * (target_id - header_info["id"])
+                    else:
                         if (target_id - header_info["id"]) * finding_direction < 0:
                             # Change direction
                             finding_direction_turned += 1
                             finding_direction = -1 if finding_direction > 0 else 1
-                    else:
-                        raise ValueError(f'Header id {target_id} not found. Try change find step.')
+                        else:
+                            finding_direction = 2 * (target_id - header_info["id"])
                 except ValueError:
-                    pass
-
+                    finding_direction = 1 if finding_direction > 0 else -1
+                if finding_direction_turned > 3:
+                    raise ValueError(f'Header Not Found')
                 # Move to next header
-                if header_offset + finding_direction * find_step >= 0:
-                    header_offset += finding_direction * find_step
-                    pbar.update(finding_direction * find_step)
-                else:
+                if header_offset + finding_direction * find_step < 0:
                     # If next header < 0, reverse direction
                     finding_direction_turned += 1
+                    pbar.update(0 - header_offset)
+                    header_offset = 0
                     finding_direction = 1
+                elif header_offset + finding_direction * find_step > filesize - header_length:
+                    # Exceeded
+                    finding_direction_turned += 1
+                    jump_to = (filesize // find_step) * find_step
+                    pbar.update(jump_to - header_offset)
+                    header_offset = jump_to - header_length
+                    finding_direction = -1
+                else:
+                    pbar.update(finding_direction * find_step)
+                    header_offset += finding_direction * find_step
 
     else:
         while True:
@@ -132,7 +132,7 @@ def process_header(file, header_offset: int, header_length: int, header_pattern:
     check_header(header_unpacked, header_pattern)
     # For Data offset
     data_offset = header_offset + header_length
-    data_length = header_info["length_buff"] * 8
+    data_length = header_info["length_buff"] * 4 * 2
     return header_info, data_offset, data_length
 
 

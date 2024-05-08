@@ -47,21 +47,22 @@ def read_packets(file_path, begin_id, end_id, cfgs):
         file_size = file_path.stat().st_size
         if not begin_id:
             begin_id = 1
-        print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id}')
         # 1. Find header, starting from offset=0 with id=1, to read the header pattern
         header_offset, header_info = read_bin.find_header_info(file, file_size, 0, 1,
                                                                None, HEADER_LENGTH, HEADER_FIND_STEP)
         header_pattern = (header_info["threshold_buff"], header_info["length_offset"], header_info["channel_n"])
         # NOTE: header_pattern is a fixed subset.
         #       Remember to change header_patter_pos in process_data
-        # 2. Estimate the point and jump to the target position
-        estimate_offset = header_offset + (begin_id - 1) * (header_info["length_buff"] * 8 + HEADER_LENGTH)
-        # 3. Header finding (forward direction)
-        header_offset, header_info = read_bin.find_header_info(file, file_size, estimate_offset, begin_id,
+        # 2. Header finding (forward direction)
+        print(COLOUR["OKBLUE"], end="")
+        header_offset, header_info = read_bin.find_header_info(file, file_size, header_offset, begin_id,
                                                                header_pattern, HEADER_LENGTH, HEADER_FIND_STEP)
-        print(f'{COLOUR["OKGREEN"]}Found header id {begin_id} at {hex(header_offset)} : {header_info["str"]}')
-        with tqdm(total=file_size, unit='B', unit_scale=True, desc='Reading') as pbar:
-            pbar.update(header_offset)
+        # print(f'{COLOUR["OKGREEN"]}Found header id {begin_id} at {hex(header_offset)} : {header_info["str"]}')
+        pbar_total = file_size - header_offset
+        if end_id:
+            pbar_total = (end_id - begin_id + 1) * (header_info["length_buff"] * 4 * 2 + HEADER_LENGTH)
+        print(COLOUR["OKGREEN"], end="")
+        with tqdm(total=pbar_total, unit='B', unit_scale=True, desc='Reading') as pbar:
             while True:
                 # ===================================================
                 # Process header and data, handle exception
