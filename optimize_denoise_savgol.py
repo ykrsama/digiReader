@@ -87,7 +87,7 @@ plt.plot(x, noisy_waveform, label="Noisy Waveform", linestyle=':')
 plt.plot(x, clean_waveform, label="Clean Waveform")
 plt.plot(x, optimized_smoothed_waveform, label="Optimized Smoothed Waveform", linestyle='--')
 plt.axhline(y=baseline_landau, color='orange', linestyle='-.', label="Baseline Landau")
-plt.axhline(y=best_gmm_baseline, color='r', linestyle='-.', label="Baseline GMM")
+plt.axhline(y=best_gmm_baseline, color='r', linestyle=':', label="Baseline GMM")
 plt.legend()
 plt.show()
 
