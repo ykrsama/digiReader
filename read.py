@@ -12,7 +12,11 @@ from tools import read_bin
 MAX_DATA_VALUE = 16384
 HEADER_LENGTH = 16
 HEADER_FIND_STEP = 8
-
+COLOUR= {
+    "FAIL": '\033[91m',
+    'OKGREEN': '\033[92m',
+    'OKBLUE': '\033[94m',
+}
 
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
@@ -41,11 +45,11 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
         if not begin_id:
             begin_id = 1
         if buff_info:
-            print(f'Finding header with id {begin_id} and buff_info {hex(buff_info)}')
+            print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id} and buff_info {hex(buff_info)}')
         else:
-            print(f'Finding header with id {begin_id}')
+            print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id}')
         header_offset, header_info = read_bin.find_begin_header_info(file, begin_id, buff_info, HEADER_LENGTH, HEADER_FIND_STEP)
-        print(f'Found first header: {header_info["str"]}')
+        print(f'{COLOUR["OKGREEN"]}Found first header: {header_info["str"]}')
         header_pattern = (header_info["length_offset"], header_info["channel_n"])
         with tqdm(total=file_path.stat().st_size, unit='B', unit_scale=True, desc='Reading') as pbar:
             pbar.update(header_offset)
@@ -60,14 +64,14 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
                     break
                 except ValueError as e:
                     if prev_header_valid:
-                        print('\033[91m' + str(e), hex(header_offset), ":", header_info["str"])
+                        print(COLOUR["FAIL"] + str(e), hex(header_offset), ":", header_info["str"])
                         prev_header_valid = False
                     header_offset += HEADER_FIND_STEP
                     pbar.update(HEADER_FIND_STEP)
                     continue
 
                 if not prev_header_valid:
-                    print('\033[92mFind header at', hex(header_offset), ":", header_info["str"])
+                    print(COLOUR["OKGREEN"] + 'Find header at', hex(header_offset), ":", header_info["str"])
                     prev_header_valid = True
 
                 if 'wave' in cfgs["modes"]:
@@ -83,7 +87,7 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
                 except IOError:
                     break
                 except ValueError as e:
-                    print('\033[91m' + hex(data_offset), ":", e)
+                    print(COLOUR["FAIL"] + hex(data_offset), ":", e)
                     pbar.update(data_offset + data_length - header_offset)
                     header_offset = data_offset + data_length
                     prev_header_valid = False
@@ -147,7 +151,7 @@ if __name__ == "__main__":
             if end_id:
                 root_file_path = root_file_path.with_name(root_file_path.stem + f'{end_id}.root')
 
-        print(f"Creating root file: {root_file_path}")
+        print(f'{COLOUR["OKBLUE"]}Creating root file: {root_file_path}')
         # Create RDataFrame and Write to file
         df = ROOT.RDF.FromNumpy({key: np.asarray(value) for key, value in packets.items() if key != 'data' and value})
         df.Snapshot("tree", str(root_file_path))
