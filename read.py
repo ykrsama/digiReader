@@ -75,7 +75,7 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
                     prev_header_valid = True
 
                 if 'wave' in cfgs["modes"]:
-                    if len(packets["id"]) >= 10:
+                    if len(packets["id"]) >= 8:
                         break
 
                 if end_id and header_info["id"] >= end_id:
@@ -159,7 +159,7 @@ if __name__ == "__main__":
         dy = max_range[1] - max_range[0]
         plot.plot_style(
             fig,
-            width=800, height=800,
+            fontsize2=14,
             yaxis_range=max_range + dy * np.array([-0.03, 0.3]),
             title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Amplitude',
             darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
