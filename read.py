@@ -7,7 +7,7 @@ import struct
 import numpy as np
 import plotly.graph_objects as go
 import ROOT
-from tools import read_bin
+from tools import read_bin, plot
 
 MAX_DATA_VALUE = 16384
 HEADER_LENGTH = 16
@@ -75,7 +75,7 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
                     prev_header_valid = True
 
                 if 'wave' in cfgs["modes"]:
-                    if len(packets["id"]) >= 100:
+                    if len(packets["id"]) >= 10:
                         break
 
                 if end_id and header_info["id"] >= end_id:
@@ -139,6 +139,37 @@ if __name__ == "__main__":
     packets = read_packets(file_path, begin_id, end_id, buff, cfgs)
 
     # ===================================================
+    # Plotting
+    # ---------------------------------------------------
+    # Plotting each packet data as a separate trace
+    if 'wave' in cfgs["modes"]:
+        fig = go.Figure()
+
+        max_range = np.array([float('inf'),-float('inf')])
+        for i, packet in enumerate(packets["data"]):
+            fig.add_trace(
+                go.Scatter(
+                    y=packet,
+                    mode='lines+markers',
+                    name=f'id {packets["id"][i]}, time tick {packets["time_tick"][i]}'
+                )
+            )
+            max_range[0] = np.min(packet) if np.min(packet) < max_range[0] else max_range[0]
+            max_range[1] = np.max(packet) if np.max(packet) > max_range[1] else max_range[1]
+        dy = max_range[1] - max_range[0]
+        plot.plot_style(
+            fig,
+            width=800, height=800,
+            yaxis_range=max_range + dy * np.array([-0.03, 0.3]),
+            title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Amplitude',
+            darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
+                             f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
+                             f'Threshold {packets["threshold_buff"][0]}'
+        )
+
+        fig.show()
+
+    # ===================================================
     # Output root file
     # ---------------------------------------------------
     if 'root' in cfgs["modes"]:
@@ -155,30 +186,3 @@ if __name__ == "__main__":
         # Create RDataFrame and Write to file
         df = ROOT.RDF.FromNumpy({key: np.asarray(value) for key, value in packets.items() if key != 'data' and value})
         df.Snapshot("tree", str(root_file_path))
-
-    # ===================================================
-    # Plotting
-    # ---------------------------------------------------
-    # Plotting each packet data as a separate trace
-    if 'wave' in cfgs["modes"]:
-        fig = go.Figure()
-
-        for i, packet in enumerate(packets["data"]):
-            fig.add_trace(
-                go.Scatter(
-                    y=packet,
-                    mode='lines+markers',
-                    name=f'id: {packets["id"][i]}, time tick: {packets["time_tick"][i]}'
-                )
-            )
-
-        fig.add_annotation(
-            x=0.01, y=0.99,
-            xref="paper", yref="paper",
-            text=f'Sampling rate: {sampling_rate} GHz<br>Offset: {packets["offset_buff"][0] * sampling_interval * 4} ns<br>Threshold: {packets["threshold_buff"][0]}',
-            showarrow=False,
-            font_size=20,
-            align="left",
-        )
-        fig.update_layout(title='Packet Data Plot', xaxis_title='Time (ns)', yaxis_title='Value')
-        fig.show()

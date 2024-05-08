@@ -1,11 +1,13 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from sklearn.metrics import mean_squared_error
 from scipy.stats import moyal
 from sklearn.mixture import GaussianMixture
 from scipy.optimize import curve_fit
 import itertools
+import plotly.graph_objects as go
+from tools import plot
+
 
 # Generate a sample waveform
 np.random.seed(0)
@@ -83,12 +85,24 @@ def estimate_baseline_landau(signal):
 baseline_landau = estimate_baseline_landau(optimized_smoothed_waveform)
 
 # Plot the results
-plt.plot(x, noisy_waveform, label="Noisy Waveform", linestyle=':')
-plt.plot(x, clean_waveform, label="Clean Waveform")
-plt.plot(x, optimized_smoothed_waveform, label="Optimized Smoothed Waveform", linestyle='--')
-plt.axhline(y=baseline_landau, color='orange', linestyle='-.', label="Baseline Landau")
-plt.axhline(y=best_gmm_baseline, color='r', linestyle=':', label="Baseline GMM")
-plt.legend()
-plt.show()
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=x, y=noisy_waveform, mode='lines', name='Noisy Waveform', line=dict(dash='dot')))
+fig.add_trace(go.Scatter(x=x, y=clean_waveform, mode='lines', name='Clean Waveform'))
+fig.add_trace(go.Scatter(x=x, y=optimized_smoothed_waveform, mode='lines',
+                         name='Optimized Smoothed Waveform', line=dict(dash='dash')))
+fig.add_hline(y=best_gmm_baseline, line=dict(color='orange', dash='dashdot'),
+              annotation=dict(text="Baseline GMM", xshift=-400, font=dict(color='orange', size=16)))
+fig.add_hline(y=baseline_landau, line=dict(color='brown', dash='dot'),
+              annotation=dict(text="Baseline Landau", font=dict(color='brown', size=16)))
 
+dy = np.max(noisy_waveform) - np.min(noisy_waveform)
 
+plot.plot_style(
+    fig,
+    yaxis_range=[np.min(noisy_waveform) - 0.03 * dy , np.max(noisy_waveform) + 0.3 * dy],
+    title='Waveform Analysis', xaxis_title='Time', yaxis_title='Amplitude',
+    darkshine_label2=f'Window Length: {best_window_length}, Polyorder: {best_polyorder}<br>' +
+                     f'GMM Component N: {best_n}'
+)
+
+fig.show()
