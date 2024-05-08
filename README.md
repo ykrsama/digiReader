@@ -10,7 +10,7 @@ conda activate <my-environment>
 
 ## Exampmle Usage
 
-**Draw first 100 waves**
+**Draw first several waves**
 
 ```bash
 python3 read.py <filename.bin> --modes wave
