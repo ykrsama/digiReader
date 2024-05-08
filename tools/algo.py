@@ -24,7 +24,7 @@ def estimate_baseline_landau(signal):
     left_index = np.where(signal[:max_index] <= half_max)[0]
     right_index = np.where(signal[max_index:] <= half_max)[0] + max_index
 
-    if len(left_index) > 0 and len(right_index) > 0:
+    if (len(left_index) > 0) and (len(right_index) > 0):
         scale_guess = (right_index[0] - left_index[-1]) / 2
     else:
         scale_guess = 5

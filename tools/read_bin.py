@@ -29,42 +29,84 @@ def byte_to_header_info(header: bytes):
     header_unpacked = byte_to_int(header)
     length_offset = header_unpacked[3]
     header_info = {
-        "id": header_unpacked[1],
+        "id": header_unpacked[0] * 0x10000 + header_unpacked[1],
         "threshold_buff": header_unpacked[2],
         "length_offset": length_offset,
         "offset_buff": length_offset & 0xFF,
         "length_buff": (length_offset >> 8) & 0xFF,
         "channel_n": header_unpacked[4],
-        "time_tick": header_unpacked[7],
+        "time_tick": header_unpacked[5] * 0x100000000 + header_unpacked[6] * 0x10000 + header_unpacked[7],
         "str": ints_to_str(header_unpacked)
     }
     return header_info, header_unpacked
 
 
-def is_begin_header(header_info: dict, begin_id=1, buff_info=None, max_channel_n=8):
-    if not begin_id:
-        begin_id = 1
-    if buff_info:
-        return (header_info["id"] == begin_id and
-            header_info["length_offset"] == buff_info and
-            header_info["channel_n"] < max_channel_n)
+def check_header(header_unpacked: tuple, header_pattern: tuple, data_max=16384):
+    if header_unpacked[2:5] != header_pattern:
+        raise ValueError(f'Invalid header {header_unpacked} ~ {header_pattern}')
+
+
+def check_data(data_unpacked, data_max=16384):
+    if max(data_unpacked) > data_max:
+        raise ValueError(f'Invalid data {hex(max(data_unpacked))} > {data_max}')
+
+
+
+def is_begin_header(header_unpacked: tuple, target_id=1, data_max=16384):
+        return (header_unpacked[0] * 0x10000 + header_unpacked[1] == target_id and
+                max(header_unpacked) > data_max)
+
+
+def find_header_info(file, filesize, start_offset, target_id: int, header_pattern=None, header_length=16, find_step=8):
+    header_offset = start_offset
+    finding_direction = 1  # 1: forward finding, -1: backward finding
+    finding_direction_turned = 0
+    if header_pattern:
+        header = get_byte(file, header_offset, header_length)
+        header_info, header_unpacked = byte_to_header_info(header)
+        if header_info["id"] == target_id:
+            return header_offset, header_info
+        elif header_info["id"] > target_id:
+            finding_direction = -1
+
+        with tqdm(total=filesize, unit='B', unit_scale=True, desc=f'Finding Header id {target_id}') as pbar:
+            pbar.update(header_offset)
+
+            while True:
+                header = get_byte(file, header_offset, header_length)
+                header_info, header_unpacked = byte_to_header_info(header)
+                try:
+                    check_header(header_unpacked, header_pattern)
+                    if header_info["id"] == target_id:
+                        return header_offset, header_info
+                    elif finding_direction_turned <= 1:
+                        finding_direction = 2 * (target_id - header_info["id"])
+                        if (target_id - header_info["id"]) * finding_direction < 0:
+                            # Change direction
+                            finding_direction_turned += 1
+                            finding_direction = -1 if finding_direction > 0 else 1
+                    else:
+                        raise ValueError(f'Header id {target_id} not found. Try change find step.')
+                except ValueError:
+                    pass
+
+                # Move to next header
+                if header_offset + finding_direction * find_step >= 0:
+                    header_offset += finding_direction * find_step
+                    pbar.update(finding_direction * find_step)
+                else:
+                    # If next header < 0, reverse direction
+                    finding_direction_turned += 1
+                    finding_direction = 1
+
     else:
-        return (header_info["id"] == begin_id and
-            header_info["channel_n"] < max_channel_n and
-            header_info["offset_buff"] <= header_info["length_buff"])
-
-
-def find_begin_header_info(file, filesize, begin_id: int, buff_info: int, header_length=16, find_step=8):
-    header_offset = 0
-    with tqdm(total=filesize, unit='B', unit_scale=True, desc='Reading') as pbar:
         while True:
             header = get_byte(file, header_offset, header_length)
-            header_info, _ = byte_to_header_info(header)
-            if is_begin_header(header_info, begin_id, buff_info):
+            header_info, header_unpacked = byte_to_header_info(header)
+            if is_begin_header(header_unpacked, target_id):
                 return header_offset, header_info
-            else:
-                header_offset += find_step
-                pbar.update(find_step)
+            header_offset += find_step
+
 
 
 def find_sublist(lst: np.ndarray, sublst: np.ndarray):
@@ -80,14 +122,6 @@ def find_sublist(lst: np.ndarray, sublst: np.ndarray):
         return -1
 
 
-def check_header(header_unpacked: tuple, header_pattern_3_5: tuple):
-    if header_unpacked[3:5] != header_pattern_3_5:
-        raise ValueError('Invalid header')
-
-
-def check_data(data_unpacked, data_max=16384):
-    if np.max(data_unpacked) > data_max:
-        raise ValueError(f'Invalid data {hex(np.max(data_unpacked))} > {data_max}')
 
 
 def process_header(file, header_offset: int, header_length: int, header_pattern: tuple):
@@ -102,15 +136,15 @@ def process_header(file, header_offset: int, header_length: int, header_pattern:
     return header_info, data_offset, data_length
 
 
-def process_data(file, data_offset: int, data_length: int, header_pattern: tuple, cfgs: dict):
+def process_data(file, data_offset: int, data_length: int, header_pattern: tuple, cfgs: dict, header_pattern_pos=2):
     data = get_byte(file, data_offset, data_length)
     data_unpacked = np.asarray(byte_to_int(data))
     # Check data: if data length is shorter than expected length_buff, mixing next header in data
     header_pos = find_sublist(data_unpacked, np.asarray(header_pattern))
     if header_pos >= 0:
         # Found header in data
-        if header_pos > 3:
-            data_num = header_pos - 3
+        if header_pos > header_pattern_pos:
+            data_num = header_pos - header_pattern_pos
             data_length = data_num * 2
             data_unpacked = data_unpacked[:data_num]
         else:

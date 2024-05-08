@@ -21,19 +21,18 @@ COLOUR= {
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
     parser.add_argument('filename', type=Path, help='Input binary file')
-    parser.add_argument('-n', '--no_root', action='store_true', help='Do not output root file')
+    parser.add_argument('-n', '--noroot', action='store_true', help='Do not output root file')
     parser.add_argument('-w', '--wave', default=0, help='Show some waveforms. Won\'t output root file.')
     parser.add_argument('-a', '--algo',
                         default=[],
                         nargs='+',
                         choices=['denoise', 'gmm', 'landau'],
                         help='Apply algorithms')
-    parser.add_argument('-i', '--id', nargs='+', type=int, default=[None], help='id begin, id end')
-    parser.add_argument('-b', '--buff', type=lambda x: int(x, 0), default=None, help='buffer_info, i.e. 0x2104')
+    parser.add_argument('-i', '--id', nargs='+', type=int, default=[None], help='id begin, id size')
     return parser.parse_args()
 
 
-def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
+def read_packets(file_path, begin_id, end_id, cfgs):
     packets = {key: [] for key in ["length_buff", "data_length", "offset_buff", "threshold_buff", "channel_n",
                                    "id", "time_tick",
                                    "data", "waveform_denoised",
@@ -48,13 +47,19 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
         file_size = file_path.stat().st_size
         if not begin_id:
             begin_id = 1
-        if buff_info:
-            print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id} and buff_info {hex(buff_info)}')
-        else:
-            print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id}')
-        header_offset, header_info = read_bin.find_begin_header_info(file, file_size, begin_id, buff_info, HEADER_LENGTH, HEADER_FIND_STEP)
-        print(f'{COLOUR["OKGREEN"]}Found first header: {header_info["str"]}')
-        header_pattern = (header_info["length_offset"], header_info["channel_n"])
+        print(f'{COLOUR["OKBLUE"]}Finding header with id {begin_id}')
+        # 1. Find header, starting from offset=0 with id=1, to read the header pattern
+        header_offset, header_info = read_bin.find_header_info(file, file_size, 0, 1,
+                                                               None, HEADER_LENGTH, HEADER_FIND_STEP)
+        header_pattern = (header_info["threshold_buff"], header_info["length_offset"], header_info["channel_n"])
+        # NOTE: header_pattern is a fixed subset.
+        #       Remember to change header_patter_pos in process_data
+        # 2. Estimate the point and jump to the target position
+        estimate_offset = header_offset + (begin_id - 1) * (header_info["length_buff"] * 8 + HEADER_LENGTH)
+        # 3. Header finding (forward direction)
+        header_offset, header_info = read_bin.find_header_info(file, file_size, estimate_offset, begin_id,
+                                                               header_pattern, HEADER_LENGTH, HEADER_FIND_STEP)
+        print(f'{COLOUR["OKGREEN"]}Found header id {begin_id} at {hex(header_offset)} : {header_info["str"]}')
         with tqdm(total=file_size, unit='B', unit_scale=True, desc='Reading') as pbar:
             pbar.update(header_offset)
             while True:
@@ -82,7 +87,7 @@ def read_packets(file_path, begin_id, end_id, buff_info, cfgs):
                     if len(packets["id"]) >= cfgs["wave"]:
                         break
 
-                if end_id and header_info["id"] >= end_id:
+                if end_id and (header_info["id"] >= end_id):
                     break
 
                 # Process Data
@@ -133,18 +138,18 @@ if __name__ == "__main__":
     # Read Arguments
     args = get_args()
     file_path = args.filename
-    no_root = args.no_root
+    no_root = args.noroot
     cfgs["wave"] = int(args.wave)
     cfgs["algo"] = args.algo
     ids = args.id
-    buff = args.buff
     # Vars depend on args
     begin_id = ids[0] if len(ids) > 0 else None
-    end_id = ids[1] if len(ids) > 1 else None
+    id_size = ids[1] if len(ids) > 1 else None
+    end_id = begin_id + id_size - 1 if id_size else None
     # ===================================================
     # Process binary file
     # ---------------------------------------------------
-    packets = read_packets(file_path, begin_id, end_id, buff, cfgs)
+    packets = read_packets(file_path, begin_id, end_id, cfgs)
 
     # ===================================================
     # Plotting
@@ -233,7 +238,7 @@ if __name__ == "__main__":
         root_file_path = file_path.with_suffix('.root')
 
         if begin_id:
-            root_file_path = root_file_path.with_name(root_file_path.stem + f'.id{begin_id}_.root')
+            root_file_path = root_file_path.with_name(root_file_path.stem + f'.id_{begin_id}_.root')
             if end_id:
                 root_file_path = root_file_path.with_name(root_file_path.stem + f'{end_id}.root')
 
