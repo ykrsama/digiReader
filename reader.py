@@ -229,12 +229,12 @@ if __name__ == "__main__":
                 concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
                 concatenate_data = np.append(concatenate_data, packet_data)
 
-            for x, title in ((concatenate_time_0, 'Digital Board Waveform Overlay'), (concatenate_time, 'Digital Board Waveform')):
+            for x, title in ((concatenate_time_0, 'Overlay Digital Board Waveform'), (concatenate_time, 'Digital Board Waveform')):
                 fig = px.density_heatmap(
                     x=x, y=concatenate_data,
                     marginal_x="histogram",
                     marginal_y="histogram",
-                    nbinsx=min(200, int(x.max() - x.min() + 1)),
+                    nbinsx=min([200, int(x.max() - x.min() + 1)]),
                 )
                 # fig.update_layout(coloraxis_showscale=False)
                 plot.plot_style(
