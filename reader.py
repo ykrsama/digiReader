@@ -166,7 +166,7 @@ if __name__ == "__main__":
         # ---------------------------------------------------
         # Plotting each packet data as a separate trace
         if cfgs["wave"]:
-            plot_dir = file_path.parent / 'plot'
+            plot_dir = Path('plot')
             print(f'Plotting to {plot_dir}')
             for format in PLOT_FORMATS:
                 Path.mkdir(plot_dir / format, parents=True, exist_ok=True)
@@ -246,13 +246,19 @@ if __name__ == "__main__":
                     concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
                     concatenate_data = np.append(concatenate_data, packet_data)
 
-                for x, title in ((concatenate_time_0, f'Overlay Waveform - {file_path}'), (concatenate_time, f'Waveform - {file_path}')):
+                for x, title, add_vline in ((concatenate_time_0, f'Overlay Waveform - {file_path}', True), (concatenate_time, f'Waveform - {file_path}', False)):
                     fig = px.density_heatmap(
                         x=x, y=concatenate_data,
                         marginal_x="histogram",
                         marginal_y="histogram",
                         nbinsx=min([200, int(x.max() - x.min() + 1)]),
                     )
+                    if add_vline:
+                        fig.add_vline(
+                            x=packets["offset_buff"][i] * 4,
+                            line=dict(color='white', dash='dash'),
+                            row=1, col=1,
+                        )
                     # fig.update_layout(coloraxis_showscale=False)
                     fig.update_layout(coloraxis_colorbar=dict(tickfont=dict(size=16)))
                     plot.plot_style(
