@@ -11,7 +11,7 @@ def plot_style(fig, title=None,
                xaxis_type=None, yaxis_type=None,
                xaxis_tickangle=None,
                xaxis_range=None, yaxis_range=None,
-               fontsize1=20, fontsize2=16,
+               fontsize1=20, fontsize2=16, label_font=16,
                darkshine_label1=r'<b><i>Dark SHINE</i></b>',
                darkshine_label2=r'1×10<sup>14</sup> Events @ 8 GeV',
                darkshine_label3=None,
@@ -91,7 +91,7 @@ def plot_style(fig, title=None,
                            xanchor='left', yanchor='top',
                            xref="paper", yref="paper",
                            text=darkshine_label1,
-                           font_size=fontsize1 - 2,
+                           font_size=label_font + 2,
                            showarrow=False,
                            align="left",
                            )
@@ -100,7 +100,7 @@ def plot_style(fig, title=None,
                            xanchor='left', yanchor='top',
                            xref="paper", yref="paper",
                            text=darkshine_label2,
-                           font_size=fontsize2,
+                           font_size=label_font,
                            showarrow=False,
                            align="left",
                            )
@@ -108,10 +108,20 @@ def plot_style(fig, title=None,
         fig.add_annotation(x=0.04 + darkshine_label_shift[0], y=0.88 + darkshine_label_shift[1],
                            xref="paper", yref="paper",
                            text=darkshine_label3,
-                           font_size=fontsize2,
+                           font_size=label_font,
                            showarrow=False,
                            align="left",
                            )
+
+
+def sanitize_filename(filename):
+    # Define illegal characters that are typically not allowed in file names
+    filename = filename.replace(' - ', '_')
+    illegal_chars = '<>:"/\\|?* '
+    for char in illegal_chars:
+        filename = filename.replace(char, '_')
+    return filename
+
 
 def add_histogram_data(fig, data, name, normalize=True, hist_bins=None, hist_range=None):
     if hist_range is None:

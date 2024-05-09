@@ -17,6 +17,7 @@ COLOUR= {
     'OKGREEN': '\033[92m',
     'OKBLUE': '\033[94m',
 }
+PLOT_FORMATS=('png', 'pdf', 'json')
 
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
@@ -43,6 +44,7 @@ def read_packets(file_path, begin_id, end_id, cfgs):
                                    ]}
     prev_header_valid = True
 
+    print(COLOUR["OKBLUE"] + 'Opening file:', file_path)
     with open(file_path, 'rb') as file:
         file_size = file_path.stat().st_size
         if not begin_id:
@@ -54,7 +56,6 @@ def read_packets(file_path, begin_id, end_id, cfgs):
         # NOTE: header_pattern is a fixed subset.
         #       Remember to change header_patter_pos in process_data
         # 2. Header finding (forward direction)
-        print(COLOUR["OKBLUE"], end="")
         try:
             header_offset, header_info = read_bin.find_header_info(file, file_size, header_offset, begin_id,
                                                                header_pattern, HEADER_LENGTH, HEADER_FIND_STEP)
@@ -165,6 +166,10 @@ if __name__ == "__main__":
         # ---------------------------------------------------
         # Plotting each packet data as a separate trace
         if cfgs["wave"]:
+            plot_dir = file_path.parent / 'plot'
+            print(f'Plotting to {plot_dir}')
+            for format in PLOT_FORMATS:
+                Path.mkdir(plot_dir / format, parents=True, exist_ok=True)
             baseline_algos = ["median", "gmm", "landau"]
             algo_name_map = {
                 "median": "Median Baseline",
@@ -176,31 +181,39 @@ if __name__ == "__main__":
                 "gmm": "goldenrod",
                 "landau": "brown",
             }
-            algo_xshift_map = {
-                "median": -500,
-                "gmm": -250,
-                "landau": 0,
-            }
             if len(packets["data"]) < 10:
+                # ===================================================
                 # Plot individual waveforms
+                # ---------------------------------------------------
                 for i in np.arange(len(packets["data"])):
                     # Plot individual packet
                     packet_data = packets["data"][i]
                     fig_algo = go.Figure()
-                    fig_algo.add_trace(go.Scatter(y=packet_data, mode='lines',
-                                                  name=f'Original Waveform, <i>I&#x0305;</i>={round(packets["mean"][i], 2)}, <i>σ</i>={round(packets["std"][i], 2)}'))
+                    fig_algo.add_trace(
+                        go.Scatter(
+                            y=packet_data, mode='lines',
+                            name=f'Original Waveform'  # ' <i>v&#x0305;</i>={round(packets["mean"][i], 2)}, <i>σ</i>={round(packets["std"][i], 2)}'
+                        )
+                    )
                     if 'denoise' in cfgs["algo"]:
-                        fig_algo.add_trace(go.Scatter(y=packets["waveform_denoised"][i], mode='lines', name='Denoised Waveform',
-                                                      line=dict(dash='dash')))
+                        waveform_denoised = packets["waveform_denoised"][i]
+                        fig_algo.add_trace(
+                            go.Scatter(
+                                y=waveform_denoised,
+                                mode='lines',
+                                name=f'Denoised Waveform', # ', <i>v&#x0305;</i>={round(np.mean(waveform_denoised))}, <i>σ</i>={round(np.std(waveform_denoised),2)}',
+                                line=dict(dash='dash')
+                            )
+                        )
                     for algo in baseline_algos:
                         if algo in cfgs["algo"] or algo == "median":
                             fig_algo.add_hline(y=packets["baseline_" + algo][i],
                                                line=dict(color=algo_color_map[algo], dash='dashdot'))
                             # Add a dummy trace for legend entry
                             if 'denoise' in cfgs["algo"]:
-                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫I<sub>D</sub></i> = {round(packets["net_signal_denoised_" + algo][i], 2)}'
+                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫v<sub>D</sub></i> = {round(packets["net_signal_denoised_" + algo][i], 2)}'
                             else:
-                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫I</i> = {round(packets["net_signal_" + algo][i], 2)}'
+                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫v</i> = {round(packets["net_signal_" + algo][i], 2)}'
                             fig_algo.add_trace(go.Scatter(
                                 x=[None],
                                 y=[None],
@@ -212,15 +225,18 @@ if __name__ == "__main__":
                     dy = np.max(packet_data) - np.min(packet_data)
                     plot.plot_style(
                         fig_algo,
-                        fontsize2=14,
+                        fontsize2=14, label_font=14,
                         yaxis_range=[np.min(packet_data) - 0.03 * dy, np.max(packet_data) + 0.3 * dy],
-                        title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Intensity',
+                        title=f'ID {packets["id"][i]} - {file_path}', xaxis_title='Time (ns)', yaxis_title='Amplitude',
                         darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
                                          f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
                                          f'Threshold {packets["threshold_buff"][0]}',
                     )
                     fig_algo.show()
             else:
+                # ===================================================
+                # Plot Waveform Histo
+                # ---------------------------------------------------
                 concatenate_time_0 = np.array([])
                 concatenate_time = np.array([])
                 concatenate_data = np.array([])
@@ -230,7 +246,7 @@ if __name__ == "__main__":
                     concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
                     concatenate_data = np.append(concatenate_data, packet_data)
 
-                for x, title in ((concatenate_time_0, 'Overlay Digital Board Waveform'), (concatenate_time, 'Digital Board Waveform')):
+                for x, title in ((concatenate_time_0, f'Overlay Waveform - {file_path}'), (concatenate_time, f'Waveform - {file_path}')):
                     fig = px.density_heatmap(
                         x=x, y=concatenate_data,
                         marginal_x="histogram",
@@ -241,29 +257,40 @@ if __name__ == "__main__":
                     fig.update_layout(coloraxis_colorbar=dict(tickfont=dict(size=16)))
                     plot.plot_style(
                         fig,
+                        label_font=20,
                         width=1200, height=800,
-                        title=title, xaxis_title='Time (ns)', yaxis_title='Intensity',
+                        title=title, xaxis_title='Time (ns)', yaxis_title='Amplitude',
                         darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
                                          f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
                                          f'Threshold {packets["threshold_buff"][0]}',
-                        darkshine_label_shift=[0.74, -0.02],
+                        darkshine_label_shift=[0.72, -0.01],
                     )
                     fig.update_xaxes(title_text="", row=1, col=2)  # Marginal y
                     fig.update_xaxes(title_text="", row=2, col=1)  # Marginal x
-                    fig.update_yaxes(title_text="", row=2, col=1)  # Marginal x
+                    fig.update_yaxes(title_text="Sample Count", row=2, col=1)  # Marginal x
+                    fig.add_annotation(
+                        x=0.96, y=-0.09,
+                        xref="paper", yref="paper",
+                        text="Amplitude Count",
+                        font_size=20,
+                        showarrow=False
+                    )
                     # Show mean and std of total waveform
-                    fig.add_annotation(x=0.99, y=0.72,
-                                       xanchor='right', yanchor='top',
-                                       xref="paper", yref="paper",
-                                       text=f'Mean {round(np.mean(concatenate_data),2)}<br>Std Dev {round(np.std(concatenate_data),2)}',
-                                       font_size=16,
-                                       showarrow=False,
-                                       align="right",
-                                       bordercolor="#666666",
-                                       borderwidth=2,
-                                       borderpad=4,
-                                       )
+                    fig.add_annotation(
+                        x=0.99, y=0.72,
+                        xanchor='right', yanchor='top',
+                        xref="paper", yref="paper",
+                        text=f'Mean {round(np.mean(concatenate_data),2)}<br>Std Dev {round(np.std(concatenate_data),2)}',
+                        font_size=18,
+                        showarrow=False,
+                        align="left",
+                        bordercolor="#666666",
+                        borderwidth=2,
+                        borderpad=4,
+                    )
                     fig.show()
+                    for format in PLOT_FORMATS:
+                        fig.write_image(plot_dir / format / Path(plot.sanitize_filename(title) + '.' + format), scale=2 if format=='png' else 1)
 
         # ===================================================
         # Output root file
