@@ -14,7 +14,8 @@ def plot_style(fig, title=None,
                fontsize1=20, fontsize2=16,
                darkshine_label1=r'<b><i>Dark SHINE</i></b>',
                darkshine_label2=r'1×10<sup>14</sup> Events @ 8 GeV',
-               darkshine_label3=None):
+               darkshine_label3=None,
+               darkshine_label_shift = [0,0]):
     axis_attr = dict(
         linecolor="#666666",
         gridcolor='#F0F0F0',
@@ -86,7 +87,8 @@ def plot_style(fig, title=None,
         for i in range(nhalf, n):
                 fig.data[i].legendgroup = 'group1'
     if darkshine_label1:
-        fig.add_annotation(x=0.04, y=0.98,
+        fig.add_annotation(x=0.04 + darkshine_label_shift[0], y=0.98 + darkshine_label_shift[1],
+                           xanchor='left', yanchor='top',
                            xref="paper", yref="paper",
                            text=darkshine_label1,
                            font_size=fontsize1 - 2,
@@ -94,7 +96,8 @@ def plot_style(fig, title=None,
                            align="left",
                            )
     if darkshine_label2:
-        fig.add_annotation(x=0.04, y=0.93,
+        fig.add_annotation(x=0.04 + darkshine_label_shift[0], y=0.93 + darkshine_label_shift[1],
+                           xanchor='left', yanchor='top',
                            xref="paper", yref="paper",
                            text=darkshine_label2,
                            font_size=fontsize2,
@@ -102,7 +105,7 @@ def plot_style(fig, title=None,
                            align="left",
                            )
     if darkshine_label3:
-        fig.add_annotation(x=0.04, y=0.88,
+        fig.add_annotation(x=0.04 + darkshine_label_shift[0], y=0.88 + darkshine_label_shift[1],
                            xref="paper", yref="paper",
                            text=darkshine_label3,
                            font_size=fontsize2,
