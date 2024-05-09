@@ -17,7 +17,7 @@ COLOUR= {
     'OKGREEN': '\033[92m',
     'OKBLUE': '\033[94m',
 }
-PLOT_FORMATS=('png', 'pdf', 'json')
+
 
 def get_args():
     parser = ArgumentParser(description='Digital Board Reader')
@@ -168,75 +168,21 @@ if __name__ == "__main__":
         if cfgs["wave"]:
             plot_dir = Path('plot')
             print(f'Plotting to {plot_dir}')
-            for format in PLOT_FORMATS:
-                Path.mkdir(plot_dir / format, parents=True, exist_ok=True)
-            baseline_algos = ["median", "gmm", "landau"]
-            algo_name_map = {
-                "median": "Median Baseline",
-                "gmm": "GMM Baseline",
-                "landau": "Landau Baseline",
-            }
-            algo_color_map = {
-                "median": "green",
-                "gmm": "goldenrod",
-                "landau": "brown",
-            }
+
             if len(packets["data"]) < 10:
-                # ===================================================
                 # Plot individual waveforms
-                # ---------------------------------------------------
                 for i in np.arange(len(packets["data"])):
-                    # Plot individual packet
-                    packet_data = packets["data"][i]
-                    fig_algo = go.Figure()
-                    fig_algo.add_trace(
-                        go.Scatter(
-                            y=packet_data, mode='lines',
-                            name=f'Original Waveform'  # ' <i>v&#x0305;</i>={round(packets["mean"][i], 2)}, <i>σ</i>={round(packets["std"][i], 2)}'
-                        )
+                    fig = plot.plot_individual_waveform(
+                        packets, i,
+                        file_path=file_path,
+                        sampling_rate=sampling_rate,
+                        sampling_interval=sampling_interval,
+                        cfgs=cfgs,
                     )
-                    if 'denoise' in cfgs["algo"]:
-                        waveform_denoised = packets["waveform_denoised"][i]
-                        fig_algo.add_trace(
-                            go.Scatter(
-                                y=waveform_denoised,
-                                mode='lines',
-                                name=f'Denoised Waveform', # ', <i>v&#x0305;</i>={round(np.mean(waveform_denoised))}, <i>σ</i>={round(np.std(waveform_denoised),2)}',
-                                line=dict(dash='dash')
-                            )
-                        )
-                    for algo in baseline_algos:
-                        if algo in cfgs["algo"] or algo == "median":
-                            fig_algo.add_hline(y=packets["baseline_" + algo][i],
-                                               line=dict(color=algo_color_map[algo], dash='dashdot'))
-                            # Add a dummy trace for legend entry
-                            if 'denoise' in cfgs["algo"]:
-                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫v<sub>D</sub></i> = {round(packets["net_signal_denoised_" + algo][i], 2)}'
-                            else:
-                                append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫v</i> = {round(packets["net_signal_" + algo][i], 2)}'
-                            fig_algo.add_trace(go.Scatter(
-                                x=[None],
-                                y=[None],
-                                mode='lines',
-                                line=dict(dash='dashdot', color=algo_color_map[algo]),
-                                showlegend=True,
-                                name=algo_name_map[algo] + append_name,
-                            ))
-                    dy = np.max(packet_data) - np.min(packet_data)
-                    plot.plot_style(
-                        fig_algo,
-                        fontsize2=14, label_font=14,
-                        yaxis_range=[np.min(packet_data) - 0.03 * dy, np.max(packet_data) + 0.3 * dy],
-                        title=f'ID {packets["id"][i]} - {file_path}', xaxis_title='Time (ns)', yaxis_title='Amplitude',
-                        darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-                                         f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
-                                         f'Threshold {packets["threshold_buff"][0]}',
-                    )
-                    fig_algo.show()
+                    fig.show()
+                    plot.write_plot(fig, plot_dir)
             else:
-                # ===================================================
                 # Plot Waveform Histo
-                # ---------------------------------------------------
                 concatenate_time_0 = np.array([])
                 concatenate_time = np.array([])
                 concatenate_data = np.array([])
@@ -246,57 +192,18 @@ if __name__ == "__main__":
                     concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
                     concatenate_data = np.append(concatenate_data, packet_data)
 
-                for x, title, add_vline in ((concatenate_time_0, f'Overlay Waveform - {file_path}', True), (concatenate_time, f'Waveform - {file_path}', False)):
-                    fig = px.density_heatmap(
-                        x=x, y=concatenate_data,
-                        marginal_x="histogram",
-                        marginal_y="histogram",
-                        nbinsx=min([200, int(x.max() - x.min() + 1)]),
-                    )
-                    if add_vline:
-                        fig.add_vline(
-                            x=packets["offset_buff"][i] * 4,
-                            line=dict(color='white', dash='dash'),
-                            row=1, col=1,
-                        )
-                    # fig.update_layout(coloraxis_showscale=False)
-                    fig.update_layout(coloraxis_colorbar=dict(tickfont=dict(size=16)))
-                    plot.plot_style(
-                        fig,
-                        label_font=20,
-                        width=1200, height=800,
-                        title=title, xaxis_title='Time (ns)', yaxis_title='Amplitude',
-                        darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-                                         f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
-                                         f'Threshold {packets["threshold_buff"][0]}',
-                        darkshine_label_shift=[0.72, -0.01],
-                    )
-                    fig.update_xaxes(title_text="", row=1, col=2)  # Marginal y
-                    fig.update_xaxes(title_text="", row=2, col=1)  # Marginal x
-                    fig.update_yaxes(title_text="Sample Count", row=2, col=1)  # Marginal x
-                    fig.add_annotation(
-                        x=0.96, y=-0.09,
-                        xref="paper", yref="paper",
-                        text="Amplitude Count",
-                        font_size=20,
-                        showarrow=False
-                    )
-                    # Show mean and std of total waveform
-                    fig.add_annotation(
-                        x=0.99, y=0.72,
-                        xanchor='right', yanchor='top',
-                        xref="paper", yref="paper",
-                        text=f'Mean {round(np.mean(concatenate_data),2)}<br>Std Dev {round(np.std(concatenate_data),2)}',
-                        font_size=18,
-                        showarrow=False,
-                        align="left",
-                        bordercolor="#666666",
-                        borderwidth=2,
-                        borderpad=4,
+                for x, title, vline in ((concatenate_time_0, f'Overlay Waveform - {file_path}', packets["offset_buff"][0] * 4), (concatenate_time, f'Waveform - {file_path}', None)):
+                    fig = plot.plot_waveform_density(
+                        x, concatenate_data,
+                        title=title,
+                        sampling_rate=sampling_rate,
+                        sampling_interval=sampling_interval,
+                        offset_buff=packets["offset_buff"][0],
+                        threashold_buff=packets["threshold_buff"][0],
+                        vline=vline,
                     )
                     fig.show()
-                    for format in PLOT_FORMATS:
-                        fig.write_image(plot_dir / format / Path(plot.sanitize_filename(title) + '.' + format), scale=2 if format=='png' else 1)
+                    plot.write_plot(fig, plot_dir)
 
         # ===================================================
         # Output root file
