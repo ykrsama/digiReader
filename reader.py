@@ -5,6 +5,7 @@ from pathlib import Path
 from tqdm import tqdm
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 import ROOT
 from tools import read_bin, plot
 
@@ -163,7 +164,6 @@ if __name__ == "__main__":
     # ---------------------------------------------------
     # Plotting each packet data as a separate trace
     if cfgs["wave"]:
-        fig_overlay_wave = go.Figure()
         baseline_algos = ["median", "gmm", "landau"]
         algo_name_map = {
             "median": "Median Baseline",
@@ -180,63 +180,76 @@ if __name__ == "__main__":
             "gmm": -250,
             "landau": 0,
         }
+        if len(packets["data"]) < 10:
+            # Plot individual waveforms
+            for i in np.arange(len(packets["data"])):
+                # Plot individual packet
+                packet_data = packets["data"][i]
+                fig_algo = go.Figure()
+                fig_algo.add_trace(go.Scatter(y=packet_data, mode='lines',
+                                              name=f'Original Waveform, <i>I&#x0305;</i>={round(packets["mean"][i], 2)}, <i>σ</i>={round(packets["std"][i], 2)}'))
+                if 'denoise' in cfgs["algo"]:
+                    fig_algo.add_trace(go.Scatter(y=packets["waveform_denoised"][i], mode='lines', name='Denoised Waveform',
+                                                  line=dict(dash='dash')))
+                for algo in baseline_algos:
+                    if algo in cfgs["algo"] or algo == "median":
+                        fig_algo.add_hline(y=packets["baseline_" + algo][i],
+                                           line=dict(color=algo_color_map[algo], dash='dashdot'))
+                        # Add a dummy trace for legend entry
+                        if 'denoise' in cfgs["algo"]:
+                            append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫I<sub>D</sub></i> = {round(packets["net_signal_denoised_" + algo][i], 2)}'
+                        else:
+                            append_name = f' {round(packets["baseline_" + algo][i], 2)}, <i>∫I</i> = {round(packets["net_signal_" + algo][i], 2)}'
+                        fig_algo.add_trace(go.Scatter(
+                            x=[None],
+                            y=[None],
+                            mode='lines',
+                            line=dict(dash='dashdot', color=algo_color_map[algo]),
+                            showlegend=True,
+                            name=algo_name_map[algo] + append_name,
+                        ))
+                dy = np.max(packet_data) - np.min(packet_data)
+                plot.plot_style(
+                    fig_algo,
+                    fontsize2=14,
+                    yaxis_range=[np.min(packet_data) - 0.03 * dy, np.max(packet_data) + 0.3 * dy],
+                    title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Intensity',
+                    darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
+                                     f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
+                                     f'Threshold {packets["threshold_buff"][0]}'
+                )
+                fig_algo.show()
+        else:
+            concatenate_time_0 = np.array([])
+            concatenate_time = np.array([])
+            concatenate_data = np.array([])
+            for i in np.arange(len(packets["data"])):
+                packet_data = packets["data"][i]
+                concatenate_time_0 = np.append(concatenate_time_0, np.arange(len(packet_data)))
+                concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
+                concatenate_data = np.append(concatenate_data, packet_data)
 
-        max_range = np.array([float('inf'),-float('inf')])
-        for i in np.arange(len(packets["data"])):
-            packet_data = packets["data"][i]
-            # Plot individual packet
-            fig_algo = go.Figure()
-            fig_algo.add_trace(go.Scatter(y=packet_data, mode='lines', name='Original Waveform'))
-            if 'denoise' in cfgs["algo"]:
-                fig_algo.add_trace(go.Scatter(y=packets["waveform_denoised"][i], mode='lines', name='Denoised Waveform',line=dict(dash='dash')))
-            for algo in baseline_algos:
-                if algo in cfgs["algo"] or algo == "median":
-                    fig_algo.add_hline(y=packets["baseline_" + algo][i],line=dict(color=algo_color_map[algo], dash='dashdot'))
-                    # Add a dummy trace for legend entry
-                    fig_algo.add_trace(go.Scatter(
-                        x=[None],
-                        y=[None],
-                        mode='lines',
-                        line=dict(dash='dashdot', color=algo_color_map[algo]),
-                        showlegend=True,
-                        name=algo_name_map[algo] + (f' ∫V<sub>D</sub> = {round(packets["net_signal_denoised_" + algo][i],2)}' if 'denoise' in cfgs["algo"] else f' ∫V = {round(packets["net_signal_" + algo][i],2)}'),
-                    ))
-
-            dy = np.max(packet_data) - np.min(packet_data)
-            plot.plot_style(
-                fig_algo,
-                fontsize2=14,
-                yaxis_range=[np.min(packet_data) - 0.03 * dy, np.max(packet_data) + 0.3 * dy],
-                title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Amplitude',
-                darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-                                 f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
-                                 f'Threshold {packets["threshold_buff"][0]}'
-            )
-            fig_algo.show()
-
-            # # overlay plot
-            # fig_overlay_wave.add_trace(
-            #     go.Scatter(
-            #         y=packet_data,
-            #         mode='lines+markers',
-            #         name=f'id {packets["id"][i]}, time tick {packets["time_tick"][i]}'
-            #     )
-            # )
-            # max_range[0] = np.min(packet_data) if np.min(packet_data) < max_range[0] else max_range[0]
-            # max_range[1] = np.max(packet_data) if np.max(packet_data) > max_range[1] else max_range[1]
-
-        # dy = max_range[1] - max_range[0]
-        # plot.plot_style(
-        #     fig_overlay_wave,
-        #     fontsize2=14,
-        #     yaxis_range=max_range + dy * np.array([-0.03, 0.3]),
-        #     title='Digital Board Waveform', xaxis_title='Time (ns)', yaxis_title='Amplitude',
-        #     darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-        #                      f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
-        #                      f'Threshold {packets["threshold_buff"][0]}'
-        # )
-        #
-        # fig_overlay_wave.show()
+            for x, title in ((concatenate_time_0, 'Digital Board Waveform Overlay'), (concatenate_time, 'Digital Board Waveform')):
+                fig = px.density_heatmap(
+                    x=x, y=concatenate_data,
+                    marginal_x="histogram",
+                    marginal_y="histogram",
+                    nbinsx=min(200, int(x.max() - x.min() + 1)),
+                )
+                # fig.update_layout(coloraxis_showscale=False)
+                plot.plot_style(
+                    fig,
+                    fontsize2=14,
+                    width=1200, height=800,
+                    title=title, xaxis_title='Time (ns)', yaxis_title='Intensity',
+                    darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
+                                     f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
+                                     f'Threshold {packets["threshold_buff"][0]}'
+                )
+                fig.update_xaxes(title_text="", row=1, col=2)  # Marginal y
+                fig.update_xaxes(title_text="", row=2, col=1)  # Marginal x
+                fig.update_yaxes(title_text="", row=2, col=1)  # Marginal x
+                fig.show()
 
     # ===================================================
     # Output root file

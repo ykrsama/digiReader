@@ -17,20 +17,27 @@ conda activate $my_environment
 python3 reader.py <filename.bin> --wave 3 --algo denoise
 ```
 
+**Draw Waveform Density Plot**
+
+when `--wave` > 10
+
+```bash
+python3 reader.py <filename.bin> --wave 100 --algo denoise
+```
+
 **Read full binary file, and output root file**
 
 ```bash
 python3 reader.py <filename.bin>
 ```
 
+`--wave`/`--noroot` option will suppress root ouptut
+
 **Read a slice of binary file**
 
-`--buff` is optional, normally the program will find the header automatically.
-Use this argument when the first found header is wrong.
-
 ```bash
-python3 reader.py <filename.bin> --id 50001 10000 --buff 0x2104
-# id starting from 50001 to 60000, with length_buff = 0x21, offset_buff = 0x04
+python3 reader.py <filename.bin> --id 50001 10000
+# id starting from 50001 to 60000
 ```
 
 **Read a slice of binary file, apply denoise and Gaussian Mixture baseline**
