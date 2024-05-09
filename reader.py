@@ -7,6 +7,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import ROOT
+from astropy.timeseries import LombScargle
 from tools import read_bin, plot
 
 MAX_DATA_VALUE = 16384
@@ -16,6 +17,9 @@ COLOUR= {
     "FAIL": '\033[91m',
     'OKGREEN': '\033[92m',
     'OKBLUE': '\033[94m',
+    'WARNING': '\033[93m',
+    'BOLD': '\033[1m',
+    'RESET': '\033[0m',
 }
 
 
@@ -35,7 +39,7 @@ def get_args():
 
 def read_packets(file_path, begin_id, end_id, cfgs):
     packets = {key: [] for key in ["length_buff", "data_length", "offset_buff", "threshold_buff", "channel_n",
-                                   "id", "time_tick",
+                                   "id", "timestamp",
                                    "data", "waveform_denoised",
                                    "mean", "std", "max", "min",
                                    "baseline_median", "net_signal_median", "net_signal_denoised_median",
@@ -128,6 +132,7 @@ def read_packets(file_path, begin_id, end_id, cfgs):
 
     return packets
 
+
 if __name__ == "__main__":
     # ===================================================
     # Initialize varaibles
@@ -155,6 +160,11 @@ if __name__ == "__main__":
     if cfgs["wave"]:
         id_size = cfgs["wave"]
         end_id = begin_id + id_size - 1
+    show_fig=True
+    if len(filenames) > 1 and cfgs["wave"]:
+        show_fig = False
+        print(f'{COLOUR["WARNING"]+COLOUR["BOLD"]}More than one input file, suppress plot showing.{COLOUR["BOLD"]}')
+
     for file_path in filenames:
         # ===================================================
         # Process binary file
@@ -166,6 +176,9 @@ if __name__ == "__main__":
         # ---------------------------------------------------
         # Plotting each packet data as a separate trace
         if cfgs["wave"]:
+            label = (f'Sampling rate {sampling_rate} GHz<br>' +
+                     f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
+                     f'Threshold {packets["threshold_buff"][0]}')
             plot_dir = Path('plot')
             print(f'Plotting to {plot_dir}')
 
@@ -175,35 +188,51 @@ if __name__ == "__main__":
                     fig = plot.plot_individual_waveform(
                         packets, i,
                         file_path=file_path,
-                        sampling_rate=sampling_rate,
-                        sampling_interval=sampling_interval,
+                        label=label,
                         cfgs=cfgs,
                     )
-                    fig.show()
                     plot.write_plot(fig, plot_dir)
+                    if show_fig:
+                        fig.show()
             else:
-                # Plot Waveform Histo
+                # Plot Waveform Density
                 concatenate_time_0 = np.array([])
                 concatenate_time = np.array([])
                 concatenate_data = np.array([])
+
                 for i in np.arange(len(packets["data"])):
                     packet_data = packets["data"][i]
                     concatenate_time_0 = np.append(concatenate_time_0, np.arange(len(packet_data)))
-                    concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["time_tick"][i] - packets["time_tick"][0]))
+                    concatenate_time = np.append(concatenate_time, np.arange(len(packet_data)) + 10 * (packets["timestamp"][i] - packets["timestamp"][0]))
                     concatenate_data = np.append(concatenate_data, packet_data)
 
                 for x, title, vline in ((concatenate_time_0, f'Overlay Waveform - {file_path}', packets["offset_buff"][0] * 4), (concatenate_time, f'Waveform - {file_path}', None)):
                     fig = plot.plot_waveform_density(
                         x, concatenate_data,
                         title=title,
-                        sampling_rate=sampling_rate,
-                        sampling_interval=sampling_interval,
-                        offset_buff=packets["offset_buff"][0],
-                        threashold_buff=packets["threshold_buff"][0],
+                        label=label,
                         vline=vline,
                     )
-                    fig.show()
                     plot.write_plot(fig, plot_dir)
+                    if show_fig:
+                        fig.show()
+
+                # Compute the Lomb-Scargle periodogram
+                frequency, power = LombScargle(concatenate_time * sampling_interval / 1e9, concatenate_data).autopower()
+                fig = go.Figure(data=go.Scatter(x=frequency, y=power, mode='lines'))
+                dy = np.max(power) - np.min(power)
+                plot.plot_style(
+                    fig,
+                    title=f'LSP - {file_path}',
+                    xaxis_title='Frequency [Hz]',
+                    yaxis_title='Lomb-Scargle Power',
+                    xaxis_type='log',
+                    darkshine_label2=label,
+                    yaxis_range=[np.min(power) - 0.03 * dy, np.max(power) + 0.3 * dy]
+                )
+                plot.write_plot(fig, plot_dir)
+                if show_fig:
+                    fig.show()
 
         # ===================================================
         # Output root file
@@ -222,4 +251,3 @@ if __name__ == "__main__":
             df = ROOT.RDF.FromNumpy({
                 key: np.asarray(value) for key, value in packets.items() if key not in no_save and value
             })
-            df.Snapshot("tree", str(root_file_path))

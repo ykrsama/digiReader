@@ -16,7 +16,9 @@ def plot_style(fig, title=None,
                darkshine_label1=r'<b><i>Dark SHINE</i></b>',
                darkshine_label2=r'1×10<sup>14</sup> Events @ 8 GeV',
                darkshine_label3=None,
-               darkshine_label_shift=[0,0]):
+               darkshine_label_shift=None):
+    if darkshine_label_shift is None:
+        darkshine_label_shift = [0.0, 0.0]
     axis_attr = dict(
         linecolor="#666666",
         gridcolor='#F0F0F0',
@@ -64,7 +66,7 @@ def plot_style(fig, title=None,
             font_size=fontsize2,
             groupclick="toggleitem",
         ),
-        showlegend=True,
+        # showlegend=True,
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(
@@ -133,7 +135,7 @@ def write_plot(fig, plot_dir: Path, plot_formats=('png', 'pdf', 'json')):
                         scale=2 if format == 'png' else 1)
 
 
-def plot_individual_waveform(packets, i, file_path, sampling_rate, sampling_interval, cfgs):
+def plot_individual_waveform(packets, i, file_path, label, cfgs):
     baseline_algos = ["median", "gmm", "landau"]
     algo_name_map = {
         "median": "Median Baseline",
@@ -189,13 +191,11 @@ def plot_individual_waveform(packets, i, file_path, sampling_rate, sampling_inte
         fontsize2=14, label_font=14,
         yaxis_range=[np.min(packet_data) - 0.03 * dy, np.max(packet_data) + 0.3 * dy],
         title=f'ID {packets["id"][i]} - {file_path}', xaxis_title='Time (ns)', yaxis_title='Amplitude',
-        darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-                         f'Offset {packets["offset_buff"][0] * sampling_interval * 4} ns<br>' +
-                         f'Threshold {packets["threshold_buff"][0]}',
+        darkshine_label2=label,
     )
     return fig
 
-def plot_waveform_density(x, y, title, sampling_rate, sampling_interval, offset_buff, threashold_buff, vline=None):
+def plot_waveform_density(x, y, title, label, vline=None):
     fig = px.density_heatmap(
         x=x, y=y,
         marginal_x="histogram",
@@ -215,9 +215,7 @@ def plot_waveform_density(x, y, title, sampling_rate, sampling_interval, offset_
         label_font=20,
         width=1200, height=800,
         title=title, xaxis_title='Time (ns)', yaxis_title='Amplitude',
-        darkshine_label2=f'Sampling rate {sampling_rate} GHz<br>' +
-                         f'Offset {offset_buff * sampling_interval * 4} ns<br>' +
-                         f'Threshold {threashold_buff}',
+        darkshine_label2=label,
         darkshine_label_shift=[0.72, -0.01],
     )
     fig.update_xaxes(title_text="", row=1, col=2)  # Marginal y

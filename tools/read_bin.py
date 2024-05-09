@@ -35,7 +35,7 @@ def byte_to_header_info(header: bytes):
         "offset_buff": length_offset & 0xFF,
         "length_buff": (length_offset >> 8) & 0xFF,
         "channel_n": header_unpacked[4],
-        "time_tick": header_unpacked[5] * 0x100000000 + header_unpacked[6] * 0x10000 + header_unpacked[7],
+        "timestamp": header_unpacked[5] * 0x100000000 + header_unpacked[6] * 0x10000 + header_unpacked[7],
         "str": ints_to_str(header_unpacked)
     }
     return header_info, header_unpacked
