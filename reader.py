@@ -251,3 +251,4 @@ if __name__ == "__main__":
             df = ROOT.RDF.FromNumpy({
                 key: np.asarray(value) for key, value in packets.items() if key not in no_save and value
             })
+            df.Snapshot("tree", str(root_file_path))
